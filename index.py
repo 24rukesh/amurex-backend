@@ -182,13 +182,16 @@ class AIClientAdapter:
 class EmbeddingAdapter:
     def __init__(self, client_mode):
         self.client_mode = client_mode
-        
+
         if self.client_mode == "LOCAL":
             from fastembed import TextEmbedding  # Import fastembed only when running project locally
             self.fastembed_model = TextEmbedding(model_name="BAAI/bge-base-en")
         elif self.client_mode == "ONLINE":
-            # Initialize Mistral client instead of MixedbreadAI
-            self.mistral_client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
+            # Use NVIDIA NIM (free tier) for embeddings instead of Mistral
+            self.nvidia_embed_client = OpenAI(
+                api_key=os.getenv("NVIDIA_API_KEY"),
+                base_url="https://integrate.api.nvidia.com/v1",
+            )
 
     def embeddings(self, text):
         if self.client_mode == "LOCAL":
@@ -196,11 +199,12 @@ class EmbeddingAdapter:
             result = np.array(list(self.fastembed_model.embed([text])))[-1].tolist()
             return result
         elif self.client_mode == "ONLINE":
-            # Use the Mistral client to generate embeddings
-            model = "mistral-embed"
-            response = self.mistral_client.embeddings.create(
-                model=model,
-                inputs=[text]
+            # Use NVIDIA's nemotron-3-embed-1b embedding model
+            response = self.nvidia_embed_client.embeddings.create(
+                input=[text],
+                model="nvidia/nemotron-3-embed-1b",
+                encoding_format="float",
+                extra_body={"input_type": "passage", "truncate": "NONE"},
             )
 
             return response.data[0].embedding
