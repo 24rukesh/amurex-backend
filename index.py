@@ -62,6 +62,8 @@ db = DatabaseManager()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 groq_api_key = os.getenv("GROQ_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
+nvidia_api_key = os.getenv("NVIDIA_API_KEY")
+NVIDIA_MODEL = "z-ai/glm-5.3-flash"
 
 class AIClientAdapter:
     def __init__(self, client_mode, ollama_url):
@@ -70,6 +72,7 @@ class AIClientAdapter:
         self.openai_client = OpenAI(api_key=openai_api_key)
         self.groq_client = Groq(api_key=groq_api_key)
         self.gemini_client = genai.Client(api_key=gemini_api_key)
+        self.nvidia_client = OpenAI(api_key=nvidia_api_key, base_url="https://integrate.api.nvidia.com/v1")
 
     def chat_completions_create(self, model, messages, temperature=0.2, response_format=None):
         # expect llama3.2 as the model name
@@ -97,20 +100,24 @@ class AIClientAdapter:
             return json.loads(response.text)["message"]["content"]
         elif self.client_mode == "ONLINE":
             # Use OpenAI or Groq client based on the model
-            if "gpt" in model:
-                return self.openai_client.chat.completions.create(
-                    model=model,
+            if "gpt" in model or "llama" in model:
+                # Routed through NVIDIA NIM (free tier) using GLM-5.3-flash instead of OpenAI/Groq
+                kwargs = dict(
+                    model=NVIDIA_MODEL,
                     messages=messages,
                     temperature=temperature,
-                    response_format=response_format
-                ).choices[0].message.content
-            elif "llama" in model:
-                return self.groq_client.chat.completions.create(
-                    model=groq[model],
-                    messages=messages,
-                    temperature=temperature,
-                    response_format=response_format
-                ).choices[0].message.content
+                    max_tokens=4096,
+                )
+                if response_format is not None:
+                    kwargs["response_format"] = response_format
+                completion = self.nvidia_client.chat.completions.create(**kwargs)
+                content = completion.choices[0].message.content
+                if content is None:
+                    # Reasoning model may have used all tokens on reasoning; retry once with a bigger budget
+                    kwargs["max_tokens"] = 8192
+                    completion = self.nvidia_client.chat.completions.create(**kwargs)
+                    content = completion.choices[0].message.content
+                return content
             elif "gemini" in model:
                 system_instruction = messages[0]["content"]
                 transcript = messages[1]["content"]
