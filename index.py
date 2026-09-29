@@ -35,7 +35,8 @@ redis_user = os.getenv("REDIS_USERNAME")
 redis_host = os.getenv("REDIS_URL")
 redis_password = os.getenv("REDIS_PASSWORD")
 redis_port = int(os.getenv("REDIS_PORT", 6379))
-redis_url = f"rediss://{redis_user}:{redis_password}@{redis_host}:{redis_port}"
+redis_scheme = "rediss" if os.getenv("REDIS_SSL", "false").lower() == "true" else "redis"
+redis_url = f"{redis_scheme}://{redis_user}:{redis_password}@{redis_host}:{redis_port}"
 redis_client = redis.Redis.from_url(
     redis_url,
     health_check_interval=10,
